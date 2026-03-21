@@ -142,7 +142,30 @@ async function runLobSmashCoachInner(params: {
   }
 
   const player = await q.getPlayer(params.ctx.waId);
+  const keyFp = q.fingerprintGeminiApiKey(apiKey);
   let previousInteractionId = player?.lastInteractionId ?? undefined;
+
+  const disableChain =
+    process.env.GEMINI_DISABLE_INTERACTION_CHAIN === "1" ||
+    process.env.GEMINI_DISABLE_INTERACTION_CHAIN === "true";
+
+  if (disableChain) {
+    previousInteractionId = undefined;
+  } else if (player?.lastInteractionId) {
+    const fpMismatch =
+      player.geminiKeyFp != null && player.geminiKeyFp !== keyFp;
+    const unboundChain = player.geminiKeyFp == null;
+    if (fpMismatch || unboundChain) {
+      console.warn(
+        "lobsmash: clearing Gemini interaction chain (new key fingerprint or first bind)",
+        { fpMismatch, unboundChain },
+      );
+      await q.clearLastInteractionId(params.ctx.waId);
+      previousInteractionId = undefined;
+    }
+  }
+
+  await q.upsertPlayer(params.ctx.waId, { geminiKeyFp: keyFp });
 
   async function createInteraction(model: string, input: ContentPart[], prevId: string | undefined) {
     return (await ai.interactions.create({
@@ -169,7 +192,7 @@ async function runLobSmashCoachInner(params: {
         "lobsmash: interaction create failed; clearing lastInteractionId and retrying",
         e,
       );
-      await q.upsertPlayer(params.ctx.waId, { lastInteractionId: null });
+      await q.clearLastInteractionId(params.ctx.waId);
       previousInteractionId = undefined;
       return await createInteraction(model, input, undefined);
     }

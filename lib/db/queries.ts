@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { eq, or } from "drizzle-orm";
 import { getDb, schema } from "./index";
 
@@ -40,6 +41,20 @@ export async function findPairForWa(waId: string) {
 
 export async function getPlayerByWa(waId: string) {
   return getPlayer(waId);
+}
+
+/** Stable fingerprint for the current Gemini API key (not reversible). */
+export function fingerprintGeminiApiKey(apiKey: string): string {
+  return createHash("sha256").update(apiKey, "utf8").digest("hex").slice(0, 24);
+}
+
+/** Clear server-side interaction chain (explicit NULL; avoids upsert null quirks). */
+export async function clearLastInteractionId(waId: string) {
+  const db = getDb();
+  await db
+    .update(players)
+    .set({ lastInteractionId: null, updatedAt: new Date() })
+    .where(eq(players.waId, waId));
 }
 
 export async function createPair(params: {

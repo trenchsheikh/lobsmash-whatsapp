@@ -8,6 +8,13 @@
       "when": 1774111164612,
       "tag": "0000_dashing_lester",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774112285360,
+      "tag": "0001_ancient_nomad",
+      "breakpoints": true
     }
   ]
 }

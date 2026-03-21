@@ -8,6 +8,8 @@ export const players = pgTable("players", {
   lastGoal: text("last_goal"),
   improvementNotes: text("improvement_notes"),
   lastInteractionId: text("last_interaction_id"),
+  /** SHA256 prefix of the Gemini API key used when `last_interaction_id` was valid; clears chain on key rotation. */
+  geminiKeyFp: text("gemini_key_fp"),
   pendingPartnerPhone: text("pending_partner_phone"),
   pendingInviteCode: text("pending_invite_code"),
   updatedAt: timestamp("updated_at", { mode: "date" }),

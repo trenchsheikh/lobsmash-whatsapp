@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "gemini_key_fp" text;

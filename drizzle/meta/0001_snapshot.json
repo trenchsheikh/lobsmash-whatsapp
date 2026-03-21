@@ -1,0 +1,243 @@
+{
+  "id": "3b977704-99e7-4bc3-b6a1-5d6da4f16cd2",
+  "prevId": "708db1ed-130b-4d87-af2f-64303fbe772c",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.pairs": {
+      "name": "pairs",
+      "schema": "",
+      "columns": {
+        "duo_id": {
+          "name": "duo_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "wa_id_a": {
+          "name": "wa_id_a",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wa_id_b": {
+          "name": "wa_id_b",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_whatsapp_id": {
+          "name": "group_whatsapp_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "consent_a": {
+          "name": "consent_a",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "consent_b": {
+          "name": "consent_b",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "session_phase": {
+          "name": "session_phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'duo_pre'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.players": {
+      "name": "players",
+      "schema": "",
+      "columns": {
+        "wa_id": {
+          "name": "wa_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weaknesses": {
+          "name": "weaknesses",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "advice_history": {
+          "name": "advice_history",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_goal": {
+          "name": "last_goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "improvement_notes": {
+          "name": "improvement_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_interaction_id": {
+          "name": "last_interaction_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gemini_key_fp": {
+          "name": "gemini_key_fp",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_partner_phone": {
+          "name": "pending_partner_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_invite_code": {
+          "name": "pending_invite_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.processed_messages": {
+      "name": "processed_messages",
+      "schema": "",
+      "columns": {
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.shared_sessions": {
+      "name": "shared_sessions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "duo_id": {
+          "name": "duo_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "match_date": {
+          "name": "match_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
