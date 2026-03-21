@@ -8,10 +8,15 @@ const globalForDb = globalThis as unknown as { pool: Pool | undefined };
 let _db: NodePgDatabase<typeof schema> | null = null;
 
 function connectionStringForPool(url: string): string {
-  if (!url.includes("supabase.com") || url.includes("sslmode=")) {
-    return url;
-  }
-  return `${url}${url.includes("?") ? "&" : "?"}sslmode=require`;
+  /** Avoid `sslmode=` in the URL: with `pg`, that can map to verify-full and break on Vercel + Supabase pooler. TLS is set via `Pool.ssl` instead. */
+  return url;
+}
+
+function sslForPostgresUrl(url: string): undefined | { rejectUnauthorized: boolean } {
+  if (!url.includes("supabase.com")) return undefined;
+  /** Supabase pooler + Node on Vercel often hits SELF_SIGNED_CERT_IN_CHAIN with verify-full; encrypted + relaxed verify is the usual fix. Set DATABASE_SSL_REJECT_UNAUTHORIZED=true to enforce CA verification (may fail on some hosts). */
+  const strict = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "true";
+  return { rejectUnauthorized: strict };
 }
 
 function poolMax(): number {
@@ -37,9 +42,7 @@ export function getDb() {
       max: poolMax(),
       idleTimeoutMillis: 20_000,
       connectionTimeoutMillis: 15_000,
-      ssl: url.includes("supabase.com")
-        ? { rejectUnauthorized: true }
-        : undefined,
+      ssl: sslForPostgresUrl(url),
     });
   }
   _db = drizzle(globalForDb.pool, { schema });
