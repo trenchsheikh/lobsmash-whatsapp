@@ -66,7 +66,7 @@ function getFunctionCalls(outputs: unknown[] | undefined): FunctionCallContent[]
   return outputs.filter(isFunctionCall);
 }
 
-/** Interactions may return in_progress; poll briefly so we stay under Kapso's ~10s webhook budget. */
+/** Interactions may return in_progress / incomplete; poll briefly so we stay under Kapso's ~10s webhook budget. */
 async function waitUntilInteractionReady(
   ai: GoogleGenAI,
   interaction: InteractionState,
@@ -75,7 +75,10 @@ async function waitUntilInteractionReady(
   let n = 0;
   const max = 25;
   const delayMs = 120;
-  while (current.status === "in_progress" && n < max) {
+  while (
+    (current.status === "in_progress" || current.status === "incomplete") &&
+    n < max
+  ) {
     await new Promise((r) => setTimeout(r, delayMs));
     current = (await ai.interactions.get(current.id, {})) as InteractionState;
     n += 1;
@@ -96,6 +99,19 @@ export type MediaInput =
     };
 
 export async function runLobSmashCoach(params: {
+  ctx: CoachContext & { duoId?: string };
+  userText: string;
+  media?: MediaInput;
+}): Promise<string> {
+  try {
+    return await runLobSmashCoachInner(params);
+  } catch (e) {
+    console.error("lobsmash: runLobSmashCoach failed", e);
+    return "Coach couldn’t reach the AI just now. Try again in a moment.";
+  }
+}
+
+async function runLobSmashCoachInner(params: {
   ctx: CoachContext & { duoId?: string };
   userText: string;
   media?: MediaInput;
@@ -126,28 +142,47 @@ export async function runLobSmashCoach(params: {
   }
 
   const player = await q.getPlayer(params.ctx.waId);
-  const previousInteractionId = player?.lastInteractionId ?? undefined;
+  let previousInteractionId = player?.lastInteractionId ?? undefined;
 
-  async function createInteraction(model: string, input: ContentPart[]) {
+  async function createInteraction(model: string, input: ContentPart[], prevId: string | undefined) {
     return (await ai.interactions.create({
       model,
       system_instruction: systemInstruction,
       tools: LOBSMASH_TOOLS,
       input,
-      previous_interaction_id: previousInteractionId,
+      previous_interaction_id: prevId,
       store: true,
       generation_config: { temperature: 0.7 },
     })) as InteractionState;
   }
 
+  /**
+   * Stale `previous_interaction_id` (wrong API key, expired store, or DB reset) makes create() throw.
+   * Clear the stored id and retry once without chaining.
+   */
+  async function createInteractionOrRecover(model: string, input: ContentPart[], prevId: string | undefined) {
+    try {
+      return await createInteraction(model, input, prevId);
+    } catch (e) {
+      if (!prevId) throw e;
+      console.warn(
+        "lobsmash: interaction create failed; clearing lastInteractionId and retrying",
+        e,
+      );
+      await q.upsertPlayer(params.ctx.waId, { lastInteractionId: null });
+      previousInteractionId = undefined;
+      return await createInteraction(model, input, undefined);
+    }
+  }
+
   let modelUsed = MODEL_PRIMARY;
   let interaction: InteractionState;
   try {
-    interaction = await createInteraction(modelUsed, inputParts);
+    interaction = await createInteractionOrRecover(modelUsed, inputParts, previousInteractionId);
   } catch (e) {
     console.warn("lobsmash: primary model failed, trying fallback", e);
     modelUsed = MODEL_FALLBACK;
-    interaction = await createInteraction(modelUsed, inputParts);
+    interaction = await createInteractionOrRecover(modelUsed, inputParts, undefined);
   }
 
   interaction = await waitUntilInteractionReady(ai, interaction);
@@ -162,7 +197,13 @@ export async function runLobSmashCoach(params: {
     const calls = getFunctionCalls(interaction.outputs as unknown[]);
     const results: FunctionResultContent[] = [];
     for (const call of calls) {
-      const text = await executeToolCall(call.name, call.arguments, params.ctx);
+      let text: string;
+      try {
+        text = await executeToolCall(call.name, call.arguments, params.ctx);
+      } catch (toolErr) {
+        console.error("lobsmash: tool execution failed", call.name, toolErr);
+        text = "Tool error — continue without saving.";
+      }
       results.push({
         type: "function_result",
         call_id: call.id,
