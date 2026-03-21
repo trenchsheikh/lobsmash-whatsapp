@@ -6,12 +6,16 @@ import * as q from "../db/queries";
 
 const MODEL_PRIMARY = "gemini-3-flash-preview";
 const MODEL_FALLBACK = "gemini-2.5-flash";
-/** Used only if Interactions API fails entirely (e.g. regional / account limits). Override with GEMINI_GENERATE_FALLBACK_MODEL. */
-const GENERATE_FALLBACK_MODELS = [
-  process.env.GEMINI_GENERATE_FALLBACK_MODEL,
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-].filter((m): m is string => Boolean(m));
+/** Used only if Interactions API fails entirely. Tried in order; override first with GEMINI_GENERATE_FALLBACK_MODEL. */
+const GENERATE_FALLBACK_MODELS = Array.from(
+  new Set(
+    [
+      process.env.GEMINI_GENERATE_FALLBACK_MODEL,
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+    ].filter((m): m is string => Boolean(m)),
+  ),
+);
 
 type InteractionState = {
   id: string;
