@@ -20,13 +20,14 @@ Kapso runs **in the cloud**. If you set the webhook to `http://localhost:3000/ap
 
 ## Prerequisites
 
-1. **Gemini API key** — set `GEMINI_API_KEY` in `.env.local`.
-2. **Kapso** — `kapso login`, then connect a WhatsApp number (`kapso setup` per [integrate-whatsapp skill](../.agents/skills/integrate-whatsapp/SKILL.md)).
-3. **IDs** — resolve `phone_number_id` and put it in `WHATSAPP_PHONE_NUMBER_ID`.
-4. **Webhook** — create a phone-number webhook for `whatsapp.message.received` pointing to  
+1. **Gemini API key** — set `GEMINI_API_KEY` in `.env` (or `.env.local`).
+2. **`DATABASE_URL`** — Supabase PostgreSQL session pooler URI (same variable on Vercel).
+3. **Kapso** — `kapso login`, then connect a WhatsApp number (`kapso setup` per [integrate-whatsapp skill](../.agents/skills/integrate-whatsapp/SKILL.md)).
+4. **IDs** — resolve `phone_number_id` and put it in `WHATSAPP_PHONE_NUMBER_ID`.
+5. **Webhook** — create a phone-number webhook for `whatsapp.message.received` pointing to  
    `https://<your-host>/api/webhooks/whatsapp` (use ngrok, Cloudflare Tunnel, or Vercel preview).  
    Set `KAPSO_WEBHOOK_SECRET` in Kapso and the same value in env.
-5. **Batching** — Kapso may send `data` as an array (`batch: true`). The handler expands each item and processes every inbound message.
+6. **Batching** — Kapso may send `data` as an array (`batch: true`). The handler expands each item and processes every inbound message.
 
 ## Verify locally
 
@@ -46,7 +47,7 @@ curl http://localhost:3000/api/health
 
 ## Troubleshooting
 
-- **No reply after a failed run** — older builds marked messages as processed *before* sending. Delete `data/lobsmash.db` (or only the `processed_messages` table) once after upgrading, then message again.
+- **No reply after a failed run** — older builds marked messages as processed *before* sending. In Supabase, truncate or delete rows from `processed_messages` for stuck `wamid`s (Table Editor or SQL), then message again.
 - Check server logs for `skip duplicate webhook delivery` (means that `wamid` was already processed).
 
 ## Notes

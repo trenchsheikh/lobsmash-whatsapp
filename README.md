@@ -26,7 +26,7 @@ flowchart LR
   WA[WhatsApp user] --> Kapso[Kapso Cloud API]
   Kapso -->|POST signed webhook| API["/api/webhooks/whatsapp"]
   API --> Gemini[Gemini 3 Flash]
-  API --> DB[(SQLite + Drizzle)]
+  API --> DB[(PostgreSQL + Drizzle)]
   Gemini --> Tools[Function tools: memory, duo, Playtomic]
   API --> Kapso
   Kapso --> WA
@@ -34,7 +34,7 @@ flowchart LR
 
 - **Framework:** [Next.js 15](https://nextjs.org) (App Router) — deploy on Vercel in one click.
 - **Model:** `gemini-3-flash-preview` via `@google/genai` (Interactions-style multimodal input).
-- **Data:** SQLite (`better-sqlite3`) + Drizzle ORM — sessions, memory, duo pairing.
+- **Data:** PostgreSQL (Supabase pooler) + Drizzle ORM — sessions, memory, duo pairing.
 - **Messaging:** `@kapso/whatsapp-cloud-api` for sends and media download.
 
 ## Quick start
@@ -50,16 +50,18 @@ flowchart LR
 2. Copy env and fill secrets:
 
    ```bash
-   cp .env.example .env.local
+   cp .env.example .env
    ```
 
-   Set `GEMINI_API_KEY`, Kapso keys, `KAPSO_WEBHOOK_SECRET`, and `WHATSAPP_PHONE_NUMBER_ID`. See **`SANDBOX.md`** for webhook URL, pairing flow, and end-to-end checks.
+   Set `GEMINI_API_KEY`, Kapso keys, `KAPSO_WEBHOOK_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`, and **`DATABASE_URL`** (Supabase **Session pooler** URI from the dashboard). See **`SANDBOX.md`** for webhook URL, pairing flow, and end-to-end checks.
 
-3. Prepare the database:
+3. Prepare the database (apply schema to Supabase):
 
    ```bash
    npm run db:push
    ```
+
+   Or apply SQL migrations: `npm run db:migrate` (after `npm run db:generate` when the schema changes).
 
 4. Run locally:
 
@@ -72,8 +74,8 @@ flowchart LR
 
 ## Deploy on Vercel
 
-- Import the repo, set the same environment variables in the Vercel project settings.
-- Use a persistent store in production if you outgrow SQLite on serverless (e.g. Turso, Neon, or Vercel Postgres) — the Drizzle schema in `lib/db/` is a small migration away.
+- Import the repo, set the same environment variables in the Vercel project settings (including **`DATABASE_URL`**).
+- Run `npm run db:push` once against production or ship migrations from CI so tables exist before traffic hits the webhook.
 
 ## Project layout
 

@@ -1,6 +1,6 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
-export const players = sqliteTable("players", {
+export const players = pgTable("players", {
   waId: text("wa_id").primaryKey(),
   displayName: text("display_name"),
   weaknesses: text("weaknesses"),
@@ -10,33 +10,33 @@ export const players = sqliteTable("players", {
   lastInteractionId: text("last_interaction_id"),
   pendingPartnerPhone: text("pending_partner_phone"),
   pendingInviteCode: text("pending_invite_code"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+  updatedAt: timestamp("updated_at", { mode: "date" }),
 });
 
-export const pairs = sqliteTable("pairs", {
+export const pairs = pgTable("pairs", {
   duoId: text("duo_id").primaryKey(),
   waIdA: text("wa_id_a").notNull(),
   waIdB: text("wa_id_b").notNull(),
   groupWhatsappId: text("group_whatsapp_id"),
   status: text("status").notNull().default("active"),
-  consentA: integer("consent_a", { mode: "boolean" }).notNull().default(true),
-  consentB: integer("consent_b", { mode: "boolean" }).notNull().default(false),
+  consentA: boolean("consent_a").notNull().default(true),
+  consentB: boolean("consent_b").notNull().default(false),
   sessionPhase: text("session_phase").notNull().default("duo_pre"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }),
+  createdAt: timestamp("created_at", { mode: "date" }),
 });
 
-export const sharedSessions = sqliteTable("shared_sessions", {
+export const sharedSessions = pgTable("shared_sessions", {
   id: text("id").primaryKey(),
   duoId: text("duo_id").notNull(),
   phase: text("phase").notNull(),
   notes: text("notes"),
   matchDate: text("match_date"),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+  updatedAt: timestamp("updated_at", { mode: "date" }),
 });
 
-export const processedMessages = sqliteTable("processed_messages", {
+export const processedMessages = pgTable("processed_messages", {
   messageId: text("message_id").primaryKey(),
-  processedAt: integer("processed_at", { mode: "timestamp_ms" }),
+  processedAt: timestamp("processed_at", { mode: "date" }),
 });
 
 export type Player = typeof players.$inferSelect;

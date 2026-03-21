@@ -1,27 +1,30 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema";
-import path from "path";
-import fs from "fs";
 
-const dataDir = path.join(process.cwd(), "data");
-const dbPath = process.env.DATABASE_URL?.replace("file:", "") ?? path.join(dataDir, "lobsmash.db");
+const globalForDb = globalThis as unknown as { pool: Pool | undefined };
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: NodePgDatabase<typeof schema> | null = null;
 
 export function getDb() {
   if (_db) return _db;
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is required (Supabase pooler URL, e.g. postgresql://…)",
+    );
   }
-  const sqlite = new Database(dbPath);
-  sqlite.pragma("journal_mode = WAL");
-  _db = drizzle(sqlite, { schema });
-  const migrationsFolder = path.join(process.cwd(), "drizzle");
-  if (fs.existsSync(path.join(migrationsFolder, "meta", "_journal.json"))) {
-    migrate(_db, { migrationsFolder });
+  if (!globalForDb.pool) {
+    globalForDb.pool = new Pool({
+      connectionString: url,
+      max: Number(process.env.DATABASE_POOL_MAX ?? 10),
+      ssl: url.includes("supabase.com")
+        ? { rejectUnauthorized: true }
+        : undefined,
+    });
   }
+  _db = drizzle(globalForDb.pool, { schema });
   return _db;
 }
 
