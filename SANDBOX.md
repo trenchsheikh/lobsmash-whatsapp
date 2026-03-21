@@ -40,7 +40,7 @@ curl http://localhost:3000/api/health
 
 ## End-to-end
 
-1. Message your connected WhatsApp business number — you should get a coach reply (four sections).
+1. Message your connected WhatsApp business number — first `hi`-style message with no saved memory gets a short **LobSmash** welcome; real coaching replies use the four sections (*What went wrong*, …).
 2. Send an image — coach should comment (media download uses Kapso + `phone_number_id`).
 3. **Partner flow** — User A: message including “partner” and an international phone number.  
    User B: `PAIR <CODE>` from the instructed phone.

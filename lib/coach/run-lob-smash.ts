@@ -1,4 +1,5 @@
 import { createUserContent, GoogleGenAI, type Part } from "@google/genai";
+import { shouldGiveOnboardingIntro } from "./conversation";
 import { buildSystemInstruction } from "../lobsmash-system-prompt";
 import { LOBSMASH_TOOLS, executeToolCall } from "./tools";
 import type { CoachContext } from "./types";
@@ -138,7 +139,13 @@ async function runCoachGenerateContentFallback(params: {
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const systemInstruction = buildSystemInstruction(params.ctx.coachMode);
+  const player = await q.getPlayer(params.ctx.waId);
+  const onboardingIntro = shouldGiveOnboardingIntro(
+    player,
+    params.userText,
+    Boolean(params.media),
+  );
+  const systemInstruction = buildSystemInstruction(params.ctx.coachMode, { onboardingIntro });
   const preamble = params.ctx.memoryBlock ? `${params.ctx.memoryBlock}\n\n---\n` : "";
   const fullText = `${preamble}User message:\n${params.userText}`;
 
@@ -195,7 +202,13 @@ async function runLobSmashCoachInner(params: {
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const systemInstruction = buildSystemInstruction(params.ctx.coachMode);
+  const player = await q.getPlayer(params.ctx.waId);
+  const onboardingIntro = shouldGiveOnboardingIntro(
+    player,
+    params.userText,
+    Boolean(params.media),
+  );
+  const systemInstruction = buildSystemInstruction(params.ctx.coachMode, { onboardingIntro });
   const preamble = params.ctx.memoryBlock ? `${params.ctx.memoryBlock}\n\n---\n` : "";
   const fullText = `${preamble}User message:\n${params.userText}`;
 
@@ -213,8 +226,6 @@ async function runLobSmashCoachInner(params: {
       mime_type: normalizeVideoMime(params.media.mimeType),
     });
   }
-
-  const player = await q.getPlayer(params.ctx.waId);
   const keyFp = q.fingerprintGeminiApiKey(apiKey);
   let previousInteractionId = player?.lastInteractionId ?? undefined;
 
