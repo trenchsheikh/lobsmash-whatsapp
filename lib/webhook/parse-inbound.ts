@@ -28,6 +28,20 @@ function expandToEventRoots(body: Record<string, unknown>): Record<string, unkno
   return [body];
 }
 
+function pickSenderPhone(
+  msg: Record<string, unknown>,
+  conv: Record<string, unknown> | undefined,
+): string | undefined {
+  const convPhone = conv?.phone_number;
+  if (convPhone != null && String(convPhone).trim() !== "") {
+    return String(convPhone);
+  }
+  const from = msg.from;
+  if (typeof from === "string" && from.trim() !== "") return from;
+  if (typeof from === "number" && Number.isFinite(from)) return String(from);
+  return undefined;
+}
+
 /**
  * Parse one Kapso event object (has `message`, `conversation`, optional `phone_number_id`).
  */
@@ -36,16 +50,11 @@ function parseSingleInbound(root: Record<string, unknown>): InboundKapsoMessage 
   if (!msg) return null;
 
   const kapso = msg.kapso as Record<string, unknown> | undefined;
+  /** Delivery / sent / failed status webhooks for bot replies — not user input. */
   if (kapso?.direction === "outbound") return null;
 
   const conv = root.conversation as Record<string, unknown> | undefined;
-  let phone = conv?.phone_number as string | undefined;
-  if (!phone) {
-    const from = msg.from;
-    if (typeof from === "string" && from) {
-      phone = from;
-    }
-  }
+  const phone = pickSenderPhone(msg, conv);
   if (!phone) return null;
 
   const waId = normalizeWaId(phone);

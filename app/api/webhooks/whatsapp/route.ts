@@ -121,7 +121,14 @@ export async function POST(req: Request) {
 
   const inbounds = parseKapsoInboundBatch(body);
   if (inbounds.length === 0) {
-    return NextResponse.json({ ok: true, parsed: 0 });
+    const eventType = typeof body.type === "string" ? body.type : null;
+    return NextResponse.json({
+      ok: true,
+      parsed: 0,
+      eventType,
+      note:
+        "No inbound user messages in this payload. Kapso also calls this URL for outbound/delivery/status events; those are ignored by design.",
+    });
   }
 
   let processed = 0;
