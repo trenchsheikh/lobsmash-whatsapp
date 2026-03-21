@@ -24,8 +24,9 @@ Kapso runs **in the cloud**. If you set the webhook to `http://localhost:3000/ap
 2. **`DATABASE_URL`** — Supabase PostgreSQL session pooler URI (same variable on Vercel).
 3. **Kapso** — `kapso login`, then connect a WhatsApp number (`kapso setup` per [integrate-whatsapp skill](../.agents/skills/integrate-whatsapp/SKILL.md)).
 4. **IDs** — resolve `phone_number_id` and put it in `WHATSAPP_PHONE_NUMBER_ID`.
-5. **Webhook** — create a phone-number webhook for `whatsapp.message.received` pointing to  
+5. **Webhook** — create a phone-number webhook pointing to  
    `https://<your-host>/api/webhooks/whatsapp` (use ngrok, Cloudflare Tunnel, or Vercel preview).  
+   **Subscribe only to `whatsapp.message.received`** for this URL. If you also enable `whatsapp.message.sent`, `delivered`, or `read`, Kapso will POST those events too; the handler returns `parsed: 0` and `coachRan: false` (that is normal, not a coach failure).  
    Set `KAPSO_WEBHOOK_SECRET` in Kapso and the same value in env.
 6. **Batching** — Kapso may send `data` as an array (`batch: true`). The handler expands each item and processes every inbound message.
 

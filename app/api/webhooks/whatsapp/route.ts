@@ -142,12 +142,20 @@ export async function POST(req: Request) {
     const hints = kapsoPayloadHints(body);
     return NextResponse.json({
       ok: true,
+      /** Coach code did not run — there was no inbound user message in this POST. */
+      coachRan: false,
+      /** This 200 is normal; Kapso also POSTs sent/delivered/read for your bot’s replies. */
+      thisIsNotAnError: true,
+      skippedReason:
+        hints.kapsoDirection === "outbound"
+          ? "kapso_outbound_or_status_event"
+          : "no_inbound_message",
       parsed: 0,
       ...hints,
       note:
         hints.kapsoDirection === "outbound"
-          ? "Ignored on purpose: this payload is for your bot’s outbound message (sent/delivered/read). The coach only runs on the separate inbound webhook when the user sends a message."
-          : "No inbound user message was parsed. If the user just messaged you, open the other webhook row with direction inbound or type whatsapp.message.received.",
+          ? "Ignored on purpose: this POST is for your bot’s outbound message (sent/delivered/read). The coach runs only on whatsapp.message.received (user inbound). In Kapso, subscribe this URL only to whatsapp.message.received (uncheck sent/delivered/read) to stop these callbacks."
+          : "No inbound user message was parsed. If the user just messaged you, open the webhook row for whatsapp.message.received (direction inbound).",
     });
   }
 
