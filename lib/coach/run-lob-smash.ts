@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { createUserContent, GoogleGenAI, type Part } from "@google/genai";
 import { buildSystemInstruction } from "../lobsmash-system-prompt";
 import { LOBSMASH_TOOLS, executeToolCall } from "./tools";
 import type { CoachContext } from "./types";
@@ -6,6 +6,12 @@ import * as q from "../db/queries";
 
 const MODEL_PRIMARY = "gemini-3-flash-preview";
 const MODEL_FALLBACK = "gemini-2.5-flash";
+/** Used only if Interactions API fails entirely (e.g. regional / account limits). Override with GEMINI_GENERATE_FALLBACK_MODEL. */
+const GENERATE_FALLBACK_MODELS = [
+  process.env.GEMINI_GENERATE_FALLBACK_MODEL,
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+].filter((m): m is string => Boolean(m));
 
 type InteractionState = {
   id: string;
@@ -106,9 +112,72 @@ export async function runLobSmashCoach(params: {
   try {
     return await runLobSmashCoachInner(params);
   } catch (e) {
-    console.error("lobsmash: runLobSmashCoach failed", e);
-    return "Coach couldn’t reach the AI just now. Try again in a moment.";
+    console.error("lobsmash: Interactions API failed, trying generateContent fallback", e);
+    try {
+      return await runCoachGenerateContentFallback(params);
+    } catch (e2) {
+      console.error("lobsmash: generateContent fallback failed", e2);
+      return "Coach couldn’t reach the AI just now. Try again in a moment.";
+    }
   }
+}
+
+/** Last-resort path when `interactions.*` throws (no tools / no server-side chain). */
+async function runCoachGenerateContentFallback(params: {
+  ctx: CoachContext & { duoId?: string };
+  userText: string;
+  media?: MediaInput;
+}): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    return "Coach is misconfigured: set GEMINI_API_KEY in the server environment.";
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const systemInstruction = buildSystemInstruction(params.ctx.coachMode);
+  const preamble = params.ctx.memoryBlock ? `${params.ctx.memoryBlock}\n\n---\n` : "";
+  const fullText = `${preamble}User message:\n${params.userText}`;
+
+  const parts: Part[] = [{ text: fullText }];
+  if (params.media?.kind === "image") {
+    parts.push({
+      inlineData: {
+        mimeType: params.media.mimeType,
+        data: params.media.base64,
+      },
+    });
+  } else if (params.media?.kind === "video") {
+    parts.push({
+      inlineData: {
+        mimeType: params.media.mimeType,
+        data: params.media.base64,
+      },
+    });
+  }
+
+  const contents = createUserContent(parts);
+  let lastErr: unknown;
+
+  for (const model of GENERATE_FALLBACK_MODELS) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+          maxOutputTokens: 8192,
+        },
+      });
+      const text = response.text?.trim();
+      if (text) return text;
+    } catch (err) {
+      lastErr = err;
+      console.warn("lobsmash: generateContent failed for model", model, err);
+    }
+  }
+
+  throw lastErr ?? new Error("generateContent returned no text");
 }
 
 async function runLobSmashCoachInner(params: {
