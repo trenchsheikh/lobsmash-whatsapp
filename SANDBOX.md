@@ -1,5 +1,23 @@
 # LobSmash Coach — sandbox testing
 
+## Webhook URL: do not use `localhost`
+
+Kapso runs **in the cloud**. If you set the webhook to `http://localhost:3000/api/webhooks/whatsapp`, Kapso tries to open port 3000 **on its own servers**, not your PC — you get **connection refused** and no bot reply.
+
+**Use a public HTTPS URL** that reaches your machine:
+
+1. Start the app: `npm run dev` or `npm run start` (port **3000**).
+2. Start a tunnel, for example:
+   - **ngrok:** `ngrok http 3000` → copy the `https://….ngrok-free.app` URL  
+   - **Cloudflare Tunnel:** `cloudflared tunnel --url http://localhost:3000`
+3. In Kapso **Webhook Configuration**, set:
+
+   `https://<your-tunnel-host>/api/webhooks/whatsapp`
+
+4. Redeploy or restart the tunnel whenever your URL changes (ngrok free URLs change each run unless you use a reserved domain).
+
+**HTTPS** is required for production webhooks; tunnels provide HTTPS to your local server.
+
 ## Prerequisites
 
 1. **Gemini API key** — set `GEMINI_API_KEY` in `.env.local`.
@@ -25,6 +43,11 @@ curl http://localhost:3000/api/health
 3. **Partner flow** — User A: message including “partner” and an international phone number.  
    User B: `PAIR <CODE>` from the instructed phone.
 4. **Duo modes** — after pairing, try messages with “before the match” / “after the match” to steer `duo_pre` vs `duo_post`.
+
+## Troubleshooting
+
+- **No reply after a failed run** — older builds marked messages as processed *before* sending. Delete `data/lobsmash.db` (or only the `processed_messages` table) once after upgrading, then message again.
+- Check server logs for `skip duplicate webhook delivery` (means that `wamid` was already processed).
 
 ## Notes
 

@@ -4,7 +4,14 @@ import { LOBSMASH_TOOLS, executeToolCall } from "./tools";
 import type { CoachContext } from "./types";
 import * as q from "../db/queries";
 
-const MODEL = "gemini-3-flash-preview";
+const MODEL_PRIMARY = "gemini-3-flash-preview";
+const MODEL_FALLBACK = "gemini-2.5-flash";
+
+type InteractionState = {
+  id: string;
+  status: string;
+  outputs?: unknown[];
+};
 
 type TextContent = { type: "text"; text: string };
 type ImageContent = {
@@ -33,7 +40,8 @@ type FunctionResultContent = {
   type: "function_result";
   call_id: string;
   name?: string;
-  result: string;
+  /** String or structured output per Gemini Interactions API */
+  result: unknown;
 };
 type ContentPart = TextContent | ImageContent | VideoContent | FunctionResultContent;
 
@@ -56,6 +64,23 @@ function extractTextFromOutputs(outputs: unknown[] | undefined): string {
 function getFunctionCalls(outputs: unknown[] | undefined): FunctionCallContent[] {
   if (!outputs) return [];
   return outputs.filter(isFunctionCall);
+}
+
+/** Interactions may return in_progress; poll briefly so we stay under Kapso's ~10s webhook budget. */
+async function waitUntilInteractionReady(
+  ai: GoogleGenAI,
+  interaction: InteractionState,
+): Promise<InteractionState> {
+  let current = interaction;
+  let n = 0;
+  const max = 25;
+  const delayMs = 120;
+  while (current.status === "in_progress" && n < max) {
+    await new Promise((r) => setTimeout(r, delayMs));
+    current = (await ai.interactions.get(current.id, {})) as InteractionState;
+    n += 1;
+  }
+  return current;
 }
 
 export type MediaInput =
@@ -103,15 +128,29 @@ export async function runLobSmashCoach(params: {
   const player = await q.getPlayer(params.ctx.waId);
   const previousInteractionId = player?.lastInteractionId ?? undefined;
 
-  let interaction = await ai.interactions.create({
-    model: MODEL,
-    system_instruction: systemInstruction,
-    tools: LOBSMASH_TOOLS,
-    input: inputParts,
-    previous_interaction_id: previousInteractionId,
-    store: true,
-    generation_config: { temperature: 0.7 },
-  });
+  async function createInteraction(model: string, input: ContentPart[]) {
+    return (await ai.interactions.create({
+      model,
+      system_instruction: systemInstruction,
+      tools: LOBSMASH_TOOLS,
+      input,
+      previous_interaction_id: previousInteractionId,
+      store: true,
+      generation_config: { temperature: 0.7 },
+    })) as InteractionState;
+  }
+
+  let modelUsed = MODEL_PRIMARY;
+  let interaction: InteractionState;
+  try {
+    interaction = await createInteraction(modelUsed, inputParts);
+  } catch (e) {
+    console.warn("lobsmash: primary model failed, trying fallback", e);
+    modelUsed = MODEL_FALLBACK;
+    interaction = await createInteraction(modelUsed, inputParts);
+  }
+
+  interaction = await waitUntilInteractionReady(ai, interaction);
 
   if (interaction.status === "failed") {
     return "Coach hit an error generating a reply. Try again with a shorter message.";
@@ -128,20 +167,22 @@ export async function runLobSmashCoach(params: {
         type: "function_result",
         call_id: call.id,
         name: call.name,
-        result: text,
+        result: { output: text },
       });
     }
     if (!results.length) break;
 
-    interaction = await ai.interactions.create({
-      model: MODEL,
+    interaction = (await ai.interactions.create({
+      model: modelUsed,
       system_instruction: systemInstruction,
       tools: LOBSMASH_TOOLS,
       input: results,
       previous_interaction_id: interaction.id,
       store: true,
       generation_config: { temperature: 0.7 },
-    });
+    })) as InteractionState;
+
+    interaction = await waitUntilInteractionReady(ai, interaction);
   }
 
   const reply = extractTextFromOutputs(interaction.outputs as unknown[]);
