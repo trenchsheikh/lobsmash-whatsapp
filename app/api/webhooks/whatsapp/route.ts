@@ -18,6 +18,24 @@ export const dynamic = "force-dynamic";
 /** Gemini + DB can exceed default 10s on cold starts; Vercel Pro+ can raise max. */
 export const maxDuration = 60;
 
+/** When `parsed === 0`, Kapso often omits top-level `type`; infer from `message.kapso` for clearer logs. */
+function kapsoPayloadHints(body: Record<string, unknown>) {
+  const eventType = typeof body.type === "string" ? body.type : null;
+  const msg = body.message as Record<string, unknown> | undefined;
+  const kapso = msg?.kapso as Record<string, unknown> | undefined;
+  const kapsoDirection = typeof kapso?.direction === "string" ? kapso.direction : null;
+  const kapsoStatus = typeof kapso?.status === "string" ? kapso.status : null;
+
+  let inferredKind: string | null = null;
+  if (kapsoDirection === "outbound") {
+    inferredKind = "outbound_or_status_webhook";
+  } else if (kapsoDirection === "inbound") {
+    inferredKind = "inbound_but_unparsed_check_payload_shape";
+  }
+
+  return { eventType, kapsoDirection, kapsoStatus, inferredKind };
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const mode = url.searchParams.get("hub.mode");
@@ -121,13 +139,15 @@ export async function POST(req: Request) {
 
   const inbounds = parseKapsoInboundBatch(body);
   if (inbounds.length === 0) {
-    const eventType = typeof body.type === "string" ? body.type : null;
+    const hints = kapsoPayloadHints(body);
     return NextResponse.json({
       ok: true,
       parsed: 0,
-      eventType,
+      ...hints,
       note:
-        "No inbound user messages in this payload. Kapso also calls this URL for outbound/delivery/status events; those are ignored by design.",
+        hints.kapsoDirection === "outbound"
+          ? "Ignored on purpose: this payload is for your bot’s outbound message (sent/delivered/read). The coach only runs on the separate inbound webhook when the user sends a message."
+          : "No inbound user message was parsed. If the user just messaged you, open the other webhook row with direction inbound or type whatsapp.message.received.",
     });
   }
 
