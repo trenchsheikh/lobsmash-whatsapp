@@ -15,6 +15,8 @@ import { downloadInboundMedia } from "@/lib/whatsapp-media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Gemini + DB can exceed default 10s on cold starts; Vercel Pro+ can raise max. */
+export const maxDuration = 60;
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -122,38 +124,55 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, parsed: 0 });
   }
 
-  getDb();
-
   let processed = 0;
   let failed = 0;
 
-  for (const inbound of inbounds) {
-    if (await q.wasMessageProcessed(inbound.messageId)) {
-      console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
-      continue;
-    }
+  try {
+    getDb();
 
-    try {
-      await processOneInbound(inbound);
-      await q.markMessageProcessed(inbound.messageId);
-      processed += 1;
-    } catch (e) {
-      console.error("processOneInbound failed", inbound.messageId, e);
-      failed += 1;
-      const phoneNumberId =
-        inbound.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
-      if (phoneNumberId) {
-        try {
-          await sendWhatsAppText(
-            phoneNumberId,
-            inbound.waId,
-            "Something went wrong on the coach server — try again in a moment.",
-          );
-        } catch {
-          /* ignore */
+    for (const inbound of inbounds) {
+      try {
+        if (await q.wasMessageProcessed(inbound.messageId)) {
+          console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
+          continue;
+        }
+
+        await processOneInbound(inbound);
+        await q.markMessageProcessed(inbound.messageId);
+        processed += 1;
+      } catch (e) {
+        console.error("lobsmash: inbound failed", inbound.messageId, e);
+        failed += 1;
+        const phoneNumberId =
+          inbound.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+        if (phoneNumberId) {
+          try {
+            await sendWhatsAppText(
+              phoneNumberId,
+              inbound.waId,
+              "Something went wrong on the coach server — try again in a moment.",
+            );
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
+  } catch (e) {
+    console.error("lobsmash: webhook fatal (DB init or batch)", e);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "internal",
+        hint:
+          process.env.NODE_ENV === "development"
+            ? e instanceof Error
+              ? e.message
+              : String(e)
+            : undefined,
+      },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({

@@ -7,5 +7,7 @@ export async function GET() {
     ok: true,
     service: "lobsmash-coach",
     time: new Date().toISOString(),
+    /** Helps confirm Vercel env without connecting to the DB. */
+    databaseUrlConfigured: Boolean(process.env.DATABASE_URL),
   });
 }
