@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { verifyWassistWebhookRequest } from "@/lib/webhook/signature";
 import { parseWassistInbound, type InboundWassistMessage } from "@/lib/webhook/parse-inbound";
@@ -9,14 +8,17 @@ import { buildMemoryBlock } from "@/lib/coach/memory-block";
 import { inferCoachMode } from "@/lib/coach/mode";
 import { runLobSmashCoach } from "@/lib/coach/run-lob-smash";
 import { downloadMediaFromUrl } from "@/lib/whatsapp-media";
-import { postReplyCallbackTextChunks, postReplyCallback } from "@/lib/wassist/reply";
+import { chunkText, postReplyCallbackTextChunks } from "@/lib/wassist/reply";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Gemini + DB can exceed default 10s on cold starts; `after()` delivers via reply_callback. */
+/** Gemini + DB can exceed default 10s on cold starts; Vercel Pro+ can raise max. */
 export const maxDuration = 60;
 
-const NO_CUSTOMER_REPLY = { content: "No CUSTOMER message reply" } as const;
+/** Wassist BYOA tool response: send this text to the customer. */
+function wassistMessageResponse(content: string) {
+  return NextResponse.json({ type: "message", content });
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -140,32 +142,35 @@ export async function POST(req: Request) {
     );
   }
 
-  after(async () => {
-    const claimed = await q.tryClaimMessageForProcessing(inbound.messageId);
-    if (!claimed) {
-      console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
-      return;
-    }
-    try {
-      const reply = await buildCoachReply(inbound);
-      await postReplyCallbackTextChunks(inbound.replyCallback, reply);
-    } catch (e) {
-      console.error("lobsmash: inbound failed", inbound.messageId, e);
-      let notified = false;
-      try {
-        await postReplyCallback(
-          inbound.replyCallback,
-          "Something went wrong on the coach server — try again in a moment.",
-        );
-        notified = true;
-      } catch {
-        /* ignore */
-      }
-      if (!notified) {
-        await q.deleteProcessedMessage(inbound.messageId);
-      }
-    }
-  });
+  const claimed = await q.tryClaimMessageForProcessing(inbound.messageId);
+  if (!claimed) {
+    console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
+    /** Duplicate delivery — nothing new to say (avoid echoing a second reply). */
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
 
-  return NextResponse.json(NO_CUSTOMER_REPLY);
+  try {
+    const reply = await buildCoachReply(inbound);
+    const parts = chunkText(reply);
+    if (parts.length === 1) {
+      return wassistMessageResponse(parts[0]!);
+    }
+    /** First segment in sync response; remainder via reply_callback (24h URL). */
+    const [first, ...rest] = parts;
+    const tail = rest.join("");
+    if (tail) {
+      try {
+        await postReplyCallbackTextChunks(inbound.replyCallback, tail);
+      } catch (e) {
+        console.error("lobsmash: reply_callback chunk failed", inbound.messageId, e);
+      }
+    }
+    return wassistMessageResponse(first!);
+  } catch (e) {
+    console.error("lobsmash: inbound failed", inbound.messageId, e);
+    await q.deleteProcessedMessage(inbound.messageId);
+    return wassistMessageResponse(
+      "Something went wrong on the coach server — try again in a moment.",
+    );
+  }
 }

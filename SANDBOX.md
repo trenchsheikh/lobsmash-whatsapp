@@ -28,7 +28,7 @@ Wassist runs **in the cloud**. If you set the webhook to `http://localhost:3000/
 
 ## How replies are sent
 
-The handler returns `{ "content": "No CUSTOMER message reply" }` immediately so Wassist does not wait on Gemini. The coach runs in a background `after()` task and POSTs the real text to the `reply_callback` URL from the webhook body.
+The handler waits for the coach, then returns JSON `{ "type": "message", "content": "<reply>" }` so Wassist can relay it to WhatsApp. Very long replies send the first chunk in that response and the rest via `reply_callback`.
 
 ## Verify locally
 
@@ -40,7 +40,7 @@ curl http://localhost:3000/api/health
 
 ## End-to-end
 
-1. Message your connected WhatsApp business number — first `hi`-style message with no saved memory gets a short **LobSmash** welcome; real coaching replies use the four sections (*What went wrong*, …).
+1. Message your connected WhatsApp business number — first `hi`-style message with no saved memory gets a short **LobSmash** welcome; follow-ups stay conversational unless you ask for a deep breakdown.
 2. Send an image — coach should comment (media is fetched from the `image` URL Wassist sends).
 3. **Partner flow** — User A: message including “partner” and an international phone number.  
    User B: `PAIR <CODE>` from the instructed phone.
@@ -48,7 +48,7 @@ curl http://localhost:3000/api/health
 
 ## Troubleshooting
 
-- **No reply after a failed run** — if processing failed before any `reply_callback`, the idempotency row may be rolled back so you can retry. Check server logs.
+- **No reply after a failed run** — on error the idempotency row may be removed so you can retry. Check server logs.
 - Check server logs for `skip duplicate webhook delivery` (another worker already claimed that delivery id).
 
 ## Notes

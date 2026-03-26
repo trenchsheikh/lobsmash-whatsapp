@@ -14,8 +14,8 @@ Padel is fast, technical, and social. Generic AI chat feels cold; a coach in **W
 
 ## What you get
 
-- **WhatsApp-native coach** — Inbound messages via [Wassist](https://wassist.app) **Bring Your Own Agent** webhooks; your server returns a quick ack and sends the real reply through Wassist’s `reply_callback` (see [docs](https://docs.wassist.app/concepts/bring-your-own-agent)).
-- **Consistent playbook** — Every answer uses four sections: *What went wrong* → *What to fix* → *Drill* → *Goal for next time* (easy to scan on a phone).
+- **WhatsApp-native coach** — Inbound messages via [Wassist](https://wassist.app) **Bring Your Own Agent** webhooks; your server returns `{ "type": "message", "content": "…" }` with the coach reply (extra-long answers may continue via `reply_callback`). See [docs](https://docs.wassist.app/concepts/bring-your-own-agent).
+- **Chat-first coaching** — Replies match intent (casual, booking, technique, duo debriefs) instead of a fixed template; structure only when it genuinely helps.
 - **Multimodal feedback** — Send a photo or clip of your swing; the coach comments on what it sees.
 - **Solo & duo modes** — Practice alone or pair with a partner; “before the match” / “after the match” steers **duo pre** vs **duo post** debriefs.
 - **Partner pairing** — Message with “partner” + a phone number to start pairing; the other player confirms with `PAIR <CODE>` (see **`SANDBOX.md`**).
@@ -27,7 +27,7 @@ Padel is fast, technical, and social. Generic AI chat feels cold; a coach in **W
 flowchart LR
   WA[WhatsApp user] --> Wassist[Wassist BYOA]
   Wassist -->|POST webhook| API["/api/webhooks/whatsapp"]
-  API -->|reply_callback| Wassist
+  API -->|JSON response| Wassist
   API --> Gemini[Gemini Interactions API]
   API --> DB[(PostgreSQL / Supabase)]
   Gemini --> Tools[Tools: memory, duo, Playtomic, gear]
@@ -39,7 +39,7 @@ flowchart LR
 | **App** | [Next.js 15.2](https://nextjs.org) (App Router), React 19, Turbopack dev (`npm run dev`) |
 | **Model** | `gemini-3-flash-preview` via `@google/genai` — **falls back** to `gemini-2.5-flash` if the primary model errors. Interactions API with `store: true` and multimodal input. |
 | **Data** | [PostgreSQL](https://www.postgresql.org/) through Supabase **session pooler** + [Drizzle ORM](https://orm.drizzle.team/) + [`pg`](https://node-postgres.com/). Pool size is capped lower on Vercel (`DATABASE_POOL_MAX` optional). |
-| **Messaging** | Wassist delivers WhatsApp messages; this app implements the BYOA webhook + `reply_callback` POSTs (no Kapso/Meta Graph client in the hot path). |
+| **Messaging** | Wassist delivers WhatsApp messages; this app implements the BYOA webhook (sync JSON reply; optional `reply_callback` for overflow chunks). |
 
 ## Quick start
 
@@ -88,8 +88,8 @@ flowchart LR
 
 | Path | Role |
 |------|------|
-| `app/api/webhooks/whatsapp/route.ts` | Wassist BYOA webhook + `after()` + `reply_callback` |
-| `lib/wassist/reply.ts` | Chunked POSTs to `reply_callback` |
+| `app/api/webhooks/whatsapp/route.ts` | Wassist BYOA webhook (sync reply; optional `reply_callback` for long text) |
+| `lib/wassist/reply.ts` | Chunked POSTs to `reply_callback` when needed |
 | `lib/coach/run-lob-smash.ts` | Gemini Interactions loop, tool calls, model fallback |
 | `lib/lobsmash-system-prompt.ts` | Modes: solo, duo pre/post |
 | `lib/partner-flow.ts` | Partner pairing |
