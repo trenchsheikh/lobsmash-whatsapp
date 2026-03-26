@@ -30,6 +30,15 @@ Wassist runs **in the cloud**. If you set the webhook to `http://localhost:3000/
 
 The handler waits for the coach, then returns JSON `{ "type": "message", "content": "<reply>" }` so Wassist can relay it to WhatsApp. Very long replies send the first chunk in that response and the rest via `reply_callback`.
 
+## Video → Pro (WhatsApp template)
+
+When someone asks to upload/send video or sends a video, the webhook can return a **Wassist template** payload (same shape as [Send Message](https://docs.wassist.app/api-reference/conversations/messages/send)): `type: "template"` with `template.name` and `template.variables`.
+
+1. Create and **publish** a template in Wassist / Meta for your WABA (body copy + any `{{1}}` placeholders).
+2. Set `LOBSMASH_VIDEO_PRO_TEMPLATE_NAME` to that template’s name.
+3. Set `LOBSMASH_VIDEO_PRO_TEMPLATE_VARIABLES_JSON` if your template has variables (e.g. `{"body":["https://lobsmash.com"]}`). If unset, the app sends `variables.body: [LOBSMASH_PRO_URL]`.
+4. If `LOBSMASH_VIDEO_PRO_TEMPLATE_NAME` is **not** set, the app falls back to a normal text message with the upgrade link.
+
 ## Verify locally
 
 ```bash

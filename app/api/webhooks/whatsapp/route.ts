@@ -9,6 +9,11 @@ import { inferCoachMode } from "@/lib/coach/mode";
 import { runLobSmashCoach } from "@/lib/coach/run-lob-smash";
 import { downloadMediaFromUrl } from "@/lib/whatsapp-media";
 import { chunkText, postReplyCallbackTextChunks } from "@/lib/wassist/reply";
+import {
+  getVideoProUpgradeWassistResponse,
+  wantsVideoUploadHelp,
+  type WebhookReplyResult,
+} from "@/lib/video-pro-upgrade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,17 +37,21 @@ export async function GET(req: Request) {
   return NextResponse.json({ ok: true, service: "lobsmash-coach", channel: "wassist" });
 }
 
-async function buildCoachReply(inbound: InboundWassistMessage): Promise<string> {
+async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookReplyResult> {
   const { waId, text, messageType, imageUrl, videoUrl } = inbound;
 
   const code = parsePairCommand(text);
   if (code) {
-    return handlePairCode(waId, code);
+    return { kind: "text", text: await handlePairCode(waId, code) };
   }
 
   const partnerEarly = await handlePartnerIntent(waId, text);
   if (partnerEarly) {
-    return partnerEarly.reply;
+    return { kind: "text", text: partnerEarly.reply };
+  }
+
+  if (wantsVideoUploadHelp(text) || messageType === "video" || Boolean(videoUrl)) {
+    return { kind: "wassist_json", body: getVideoProUpgradeWassistResponse() };
   }
 
   await q.upsertPlayer(waId, {});
@@ -85,7 +94,7 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<string> 
     }
   }
 
-  return runLobSmashCoach({
+  const textReply = await runLobSmashCoach({
     ctx: {
       waId,
       coachMode,
@@ -95,6 +104,7 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<string> 
     userText: text || `[${messageType} message]`,
     media,
   });
+  return { kind: "text", text: textReply };
 }
 
 export async function POST(req: Request) {
@@ -150,7 +160,11 @@ export async function POST(req: Request) {
   }
 
   try {
-    const reply = await buildCoachReply(inbound);
+    const result = await buildCoachReply(inbound);
+    if (result.kind === "wassist_json") {
+      return NextResponse.json(result.body);
+    }
+    const reply = result.text;
     const parts = chunkText(reply);
     if (parts.length === 1) {
       return wassistMessageResponse(parts[0]!);
