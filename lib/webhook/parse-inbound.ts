@@ -45,6 +45,11 @@ function pickHttpMediaUrl(v: unknown): string | undefined {
   return undefined;
 }
 
+/** Some providers put a video file URL in `image` — detect by extension. */
+function looksLikeVideoFileUrl(url: string): boolean {
+  return /\.(mp4|mov|webm|m4v|3gp|avi|mkv)(\?|#|$)/i.test(url);
+}
+
 /**
  * Wassist BYOA inbound shape:
  * @see https://docs.wassist.app/concepts/bring-your-own-agent#step-2-implement-your-webhook
@@ -61,8 +66,11 @@ export function parseWassistInbound(body: Record<string, unknown>): InboundWassi
   }
 
   const text = typeof body.message === "string" ? body.message : "";
-  const imageUrl = pickHttpMediaUrl(body.image);
-  const videoUrl = pickHttpMediaUrl(body.video);
+  const rawImage = pickHttpMediaUrl(body.image);
+  const rawVideo = pickHttpMediaUrl(body.video);
+  const videoUrl =
+    rawVideo ?? (rawImage && looksLikeVideoFileUrl(rawImage) ? rawImage : undefined);
+  const imageUrl = videoUrl && rawImage === videoUrl ? undefined : rawImage;
 
   const messageId = deriveWassistMessageId(body);
 

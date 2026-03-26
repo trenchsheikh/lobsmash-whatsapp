@@ -50,7 +50,8 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookR
     return { kind: "text", text: partnerEarly.reply };
   }
 
-  if (wantsVideoUploadHelp(text) || messageType === "video" || Boolean(videoUrl)) {
+  /** Pro marketing only when they *ask* about uploading — real video uses URL-in-prompt, not binary to the model. */
+  if (wantsVideoUploadHelp(text)) {
     return { kind: "wassist_json", body: getVideoProUpgradeWassistResponse() };
   }
 
@@ -66,33 +67,23 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookR
         mimeType: string;
         base64: string;
       }
-    | {
-        kind: "video";
-        mimeType: string;
-        base64: string;
-      }
     | undefined;
 
-  const mediaUrl = messageType === "video" ? videoUrl : imageUrl;
-  if (mediaUrl && (messageType === "image" || messageType === "video")) {
+  if (imageUrl && messageType === "image") {
     try {
-      const downloaded = await downloadMediaFromUrl(mediaUrl);
-      media =
-        messageType === "video"
-          ? {
-              kind: "video",
-              base64: downloaded.base64,
-              mimeType: downloaded.mimeType,
-            }
-          : {
-              kind: "image",
-              base64: downloaded.base64,
-              mimeType: downloaded.mimeType,
-            };
+      const downloaded = await downloadMediaFromUrl(imageUrl);
+      media = {
+        kind: "image",
+        base64: downloaded.base64,
+        mimeType: downloaded.mimeType,
+      };
     } catch (e) {
       console.error("media download failed", e);
     }
   }
+
+  const videoReferenceUrl =
+    messageType === "video" && videoUrl?.trim() ? videoUrl.trim() : undefined;
 
   const textReply = await runLobSmashCoach({
     ctx: {
@@ -103,6 +94,7 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookR
     },
     userText: text || `[${messageType} message]`,
     media,
+    videoReferenceUrl,
   });
   return { kind: "text", text: textReply };
 }

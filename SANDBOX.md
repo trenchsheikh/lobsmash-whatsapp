@@ -32,12 +32,14 @@ The handler waits for the coach, then returns JSON `{ "type": "message", "conten
 
 ## Video → Pro (WhatsApp template)
 
-When someone asks to upload/send video or sends a video, the webhook can return a **Wassist template** payload (same shape as [Send Message](https://docs.wassist.app/api-reference/conversations/messages/send)): `type: "template"` with `template.name` and `template.variables`.
+When someone **asks** (text only) about uploading or sending video — before they’ve attached a clip — the webhook can return a **Wassist template** payload (same shape as [Send Message](https://docs.wassist.app/api-reference/conversations/messages/send)): `type: "template"` with `template.name` and `template.variables`.
 
 1. Create and **publish** a template in Wassist / Meta for your WABA (body copy + any `{{1}}` placeholders).
 2. Set `LOBSMASH_VIDEO_PRO_TEMPLATE_NAME` to that template’s name.
 3. Set `LOBSMASH_VIDEO_PRO_TEMPLATE_VARIABLES_JSON` if your template has variables (e.g. `{"body":["https://lobsmash.com"]}`). If unset, the app sends `variables.body: [LOBSMASH_PRO_URL]`.
 4. If `LOBSMASH_VIDEO_PRO_TEMPLATE_NAME` is **not** set, the app falls back to a normal text message with the upgrade link.
+
+When they **send** a video, the app does **not** download it for Gemini; it passes Wassist’s **hosted video URL** in the coach prompt as text (see [`lib/coach/run-lob-smash.ts`](lib/coach/run-lob-smash.ts)).
 
 ## Verify locally
 

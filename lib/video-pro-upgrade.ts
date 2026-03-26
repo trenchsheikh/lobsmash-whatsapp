@@ -3,7 +3,8 @@ export type WebhookReplyResult =
   | { kind: "text"; text: string };
 
 /**
- * Video → Pro upgrade path.
+ * Pro marketing when the user *asks* about uploading/sending video (no attachment yet).
+ * Actual video messages are handled by passing the hosted URL in the coach prompt — not here.
  *
  * **Wassist WhatsApp template** (recommended): create & publish a template in Wassist/Meta,
  * set `LOBSMASH_VIDEO_PRO_TEMPLATE_NAME`, and optional `LOBSMASH_VIDEO_PRO_TEMPLATE_VARIABLES_JSON`.
