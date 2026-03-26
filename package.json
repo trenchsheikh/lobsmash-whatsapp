@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@google/genai": "^1.46.0",
-    "@kapso/whatsapp-cloud-api": "^0.2.0",
     "drizzle-orm": "^0.45.1",
     "pg": "^8.14.1",
     "nanoid": "^5.1.7",

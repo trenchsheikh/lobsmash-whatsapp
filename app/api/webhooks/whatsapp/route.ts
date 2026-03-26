@@ -1,40 +1,22 @@
+import { after } from "next/server";
 import { NextResponse } from "next/server";
-import { verifyKapsoSignature } from "@/lib/webhook/signature";
-import {
-  parseKapsoInboundBatch,
-  type InboundKapsoMessage,
-} from "@/lib/webhook/parse-inbound";
+import { verifyWassistWebhookRequest } from "@/lib/webhook/signature";
+import { parseWassistInbound, type InboundWassistMessage } from "@/lib/webhook/parse-inbound";
 import * as q from "@/lib/db/queries";
 import { getDb } from "@/lib/db/index";
 import { handlePartnerIntent, handlePairCode, parsePairCommand } from "@/lib/partner-flow";
 import { buildMemoryBlock } from "@/lib/coach/memory-block";
 import { inferCoachMode } from "@/lib/coach/mode";
 import { runLobSmashCoach } from "@/lib/coach/run-lob-smash";
-import { sendWhatsAppText } from "@/lib/kapso-client";
-import { downloadInboundMedia } from "@/lib/whatsapp-media";
+import { downloadMediaFromUrl } from "@/lib/whatsapp-media";
+import { postReplyCallbackTextChunks, postReplyCallback } from "@/lib/wassist/reply";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Gemini + DB can exceed default 10s on cold starts; Vercel Pro+ can raise max. */
+/** Gemini + DB can exceed default 10s on cold starts; `after()` delivers via reply_callback. */
 export const maxDuration = 60;
 
-/** When `parsed === 0`, Kapso often omits top-level `type`; infer from `message.kapso` for clearer logs. */
-function kapsoPayloadHints(body: Record<string, unknown>) {
-  const eventType = typeof body.type === "string" ? body.type : null;
-  const msg = body.message as Record<string, unknown> | undefined;
-  const kapso = msg?.kapso as Record<string, unknown> | undefined;
-  const kapsoDirection = typeof kapso?.direction === "string" ? kapso.direction : null;
-  const kapsoStatus = typeof kapso?.status === "string" ? kapso.status : null;
-
-  let inferredKind: string | null = null;
-  if (kapsoDirection === "outbound") {
-    inferredKind = "outbound_or_status_webhook";
-  } else if (kapsoDirection === "inbound") {
-    inferredKind = "inbound_but_unparsed_check_payload_shape";
-  }
-
-  return { eventType, kapsoDirection, kapsoStatus, inferredKind };
-}
+const NO_CUSTOMER_REPLY = { content: "No CUSTOMER message reply" } as const;
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -45,29 +27,20 @@ export async function GET(req: Request) {
   if (mode === "subscribe" && challenge && verify && token === verify) {
     return new NextResponse(challenge, { status: 200 });
   }
-  return NextResponse.json({ ok: true, service: "lobsmash-coach" });
+  return NextResponse.json({ ok: true, service: "lobsmash-coach", channel: "wassist" });
 }
 
-async function processOneInbound(inbound: InboundKapsoMessage): Promise<void> {
-  const { waId, text, messageType, mediaId } = inbound;
-  const phoneNumberId =
-    inbound.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
-  if (!phoneNumberId) {
-    console.warn("lobsmash: skipped inbound — no phone_number_id", inbound.messageId);
-    return;
-  }
+async function buildCoachReply(inbound: InboundWassistMessage): Promise<string> {
+  const { waId, text, messageType, imageUrl, videoUrl } = inbound;
 
   const code = parsePairCommand(text);
   if (code) {
-    const msg = await handlePairCode(waId, code);
-    await sendWhatsAppText(phoneNumberId, waId, msg);
-    return;
+    return handlePairCode(waId, code);
   }
 
   const partnerEarly = await handlePartnerIntent(waId, text);
   if (partnerEarly) {
-    await sendWhatsAppText(phoneNumberId, waId, partnerEarly.reply);
-    return;
+    return partnerEarly.reply;
   }
 
   await q.upsertPlayer(waId, {});
@@ -89,9 +62,10 @@ async function processOneInbound(inbound: InboundKapsoMessage): Promise<void> {
       }
     | undefined;
 
-  if (mediaId && (messageType === "image" || messageType === "video")) {
+  const mediaUrl = messageType === "video" ? videoUrl : imageUrl;
+  if (mediaUrl && (messageType === "image" || messageType === "video")) {
     try {
-      const downloaded = await downloadInboundMedia({ phoneNumberId, mediaId });
+      const downloaded = await downloadMediaFromUrl(mediaUrl);
       media =
         messageType === "video"
           ? {
@@ -109,7 +83,7 @@ async function processOneInbound(inbound: InboundKapsoMessage): Promise<void> {
     }
   }
 
-  const reply = await runLobSmashCoach({
+  return runLobSmashCoach({
     ctx: {
       waId,
       coachMode,
@@ -119,14 +93,12 @@ async function processOneInbound(inbound: InboundKapsoMessage): Promise<void> {
     userText: text || `[${messageType} message]`,
     media,
   });
-
-  await sendWhatsAppText(phoneNumberId, waId, reply);
 }
 
 export async function POST(req: Request) {
   const raw = Buffer.from(await req.arrayBuffer());
-  const sig = req.headers.get("x-webhook-signature");
-  if (!verifyKapsoSignature(raw, sig, process.env.KAPSO_WEBHOOK_SECRET)) {
+
+  if (!verifyWassistWebhookRequest(req, raw)) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
@@ -137,64 +109,22 @@ export async function POST(req: Request) {
     return new NextResponse("bad json", { status: 400 });
   }
 
-  const inbounds = parseKapsoInboundBatch(body);
-  if (inbounds.length === 0) {
-    const hints = kapsoPayloadHints(body);
+  const inbound = parseWassistInbound(body);
+  if (!inbound) {
     return NextResponse.json({
       ok: true,
-      /** Coach code did not run — there was no inbound user message in this POST. */
       coachRan: false,
-      /** This 200 is normal; Kapso also POSTs sent/delivered/read for your bot’s replies. */
       thisIsNotAnError: true,
-      skippedReason:
-        hints.kapsoDirection === "outbound"
-          ? "kapso_outbound_or_status_event"
-          : "no_inbound_message",
+      skippedReason: "no_inbound_message",
       parsed: 0,
-      ...hints,
-      note:
-        hints.kapsoDirection === "outbound"
-          ? "Ignored on purpose: this POST is for your bot’s outbound message (sent/delivered/read). The coach runs only on whatsapp.message.received (user inbound). In Kapso, subscribe this URL only to whatsapp.message.received (uncheck sent/delivered/read) to stop these callbacks."
-          : "No inbound user message was parsed. If the user just messaged you, open the webhook row for whatsapp.message.received (direction inbound).",
+      hint: "Expected Wassist BYOA JSON: message, phone_number, reply_callback (see Wassist docs).",
     });
   }
 
-  let processed = 0;
-  let failed = 0;
-
   try {
     getDb();
-
-    for (const inbound of inbounds) {
-      try {
-        if (await q.wasMessageProcessed(inbound.messageId)) {
-          console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
-          continue;
-        }
-
-        await processOneInbound(inbound);
-        await q.markMessageProcessed(inbound.messageId);
-        processed += 1;
-      } catch (e) {
-        console.error("lobsmash: inbound failed", inbound.messageId, e);
-        failed += 1;
-        const phoneNumberId =
-          inbound.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
-        if (phoneNumberId) {
-          try {
-            await sendWhatsAppText(
-              phoneNumberId,
-              inbound.waId,
-              "Something went wrong on the coach server — try again in a moment.",
-            );
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    }
   } catch (e) {
-    console.error("lobsmash: webhook fatal (DB init or batch)", e);
+    console.error("lobsmash: DB init failed", e);
     return NextResponse.json(
       {
         ok: false,
@@ -210,10 +140,32 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({
-    ok: true,
-    batch: inbounds.length,
-    processed,
-    failed,
+  after(async () => {
+    const claimed = await q.tryClaimMessageForProcessing(inbound.messageId);
+    if (!claimed) {
+      console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
+      return;
+    }
+    try {
+      const reply = await buildCoachReply(inbound);
+      await postReplyCallbackTextChunks(inbound.replyCallback, reply);
+    } catch (e) {
+      console.error("lobsmash: inbound failed", inbound.messageId, e);
+      let notified = false;
+      try {
+        await postReplyCallback(
+          inbound.replyCallback,
+          "Something went wrong on the coach server — try again in a moment.",
+        );
+        notified = true;
+      } catch {
+        /* ignore */
+      }
+      if (!notified) {
+        await q.deleteProcessedMessage(inbound.messageId);
+      }
+    }
   });
+
+  return NextResponse.json(NO_CUSTOMER_REPLY);
 }

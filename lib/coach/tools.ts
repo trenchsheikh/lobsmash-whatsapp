@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
-import { buildPlaytomicHelpMessage, type PlaytomicHelpInput } from "../playtomic-links";
+import { buildPlaytomicBookingHelpResolved, type PlaytomicHelpInput } from "../playtomic-links";
+import { getPadelRecommendationText, type RecommendationCategory } from "../padel-recommendations";
 import * as q from "../db/queries";
 import type { CoachContext } from "./types";
 
@@ -40,7 +41,7 @@ export const LOBSMASH_TOOLS = [
     type: "function" as const,
     name: "get_playtomic_booking_help",
     description:
-      "Return curated Playtomic links and guidance. Use when user wants to book or find padel games.",
+      "Return Playtomic links and optional org API probe (if configured). Use when user wants to book or find padel games.",
     parameters: {
       type: "object",
       properties: {
@@ -49,6 +50,26 @@ export const LOBSMASH_TOOLS = [
         intent: { type: "string", enum: ["book_court", "find_open_match"] },
         date_hint: { type: "string" },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function" as const,
+    name: "get_padel_recommendations",
+    description:
+      "Curated guidance for padel rackets, clothing, or finding communities. Use when user asks what to buy, wear, or where to find players.",
+    parameters: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: ["racket", "clothing", "community", "general"],
+          description: "What kind of recommendation",
+        },
+        level: { type: "string", description: "Player level if known" },
+        region: { type: "string", description: "City/country for communities" },
+      },
+      required: ["category"],
       additionalProperties: false,
     },
   },
@@ -102,7 +123,18 @@ export async function executeToolCall(
             : undefined,
         date_hint: typeof args.date_hint === "string" ? args.date_hint : undefined,
       };
-      return buildPlaytomicHelpMessage(input);
+      return buildPlaytomicBookingHelpResolved(input);
+    }
+    case "get_padel_recommendations": {
+      const cat = args.category;
+      const category: RecommendationCategory =
+        cat === "racket" || cat === "clothing" || cat === "community" || cat === "general"
+          ? cat
+          : "general";
+      return getPadelRecommendationText(category, {
+        level: typeof args.level === "string" ? args.level : undefined,
+        region: typeof args.region === "string" ? args.region : undefined,
+      });
     }
     default:
       return `Unknown tool ${name}`;

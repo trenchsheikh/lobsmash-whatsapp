@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
-export function verifyKapsoSignature(
+/** HMAC-SHA256 hex of raw body, compared to `x-webhook-signature` (when a shared secret is configured). */
+export function verifyWebhookHmacSha256Hex(
   rawBody: Buffer,
   signatureHeader: string | null,
   secret: string | undefined,
@@ -16,4 +17,22 @@ export function verifyKapsoSignature(
   } catch {
     return false;
   }
+}
+
+/**
+ * If `WASSIST_WEBHOOK_SECRET` is set, require matching `x-webhook-signature` (HMAC-SHA256 hex).
+ * Else if `WASSIST_WEBHOOK_HEADER_NAME` + `WASSIST_WEBHOOK_HEADER_VALUE` are set, require that header.
+ * Else allow (rely on secret URL / edge protection).
+ */
+export function verifyWassistWebhookRequest(req: Request, rawBody: Buffer): boolean {
+  const secret = process.env.WASSIST_WEBHOOK_SECRET;
+  if (secret) {
+    return verifyWebhookHmacSha256Hex(rawBody, req.headers.get("x-webhook-signature"), secret);
+  }
+  const hName = process.env.WASSIST_WEBHOOK_HEADER_NAME;
+  const hVal = process.env.WASSIST_WEBHOOK_HEADER_VALUE;
+  if (hName && hVal) {
+    return req.headers.get(hName.toLowerCase()) === hVal;
+  }
+  return true;
 }

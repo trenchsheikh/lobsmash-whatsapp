@@ -1,3 +1,5 @@
+import { isPlaytomicApiConfigured, playtomicProbe } from "./playtomic-client";
+
 export type PlaytomicHelpInput = {
   city?: string;
   country?: string;
@@ -20,4 +22,13 @@ export function buildPlaytomicHelpMessage(input: PlaytomicHelpInput): string {
     "",
     "Open Playtomic on your phone while online, pick location + sport (padel), then choose date/time. Slots change in real time — the coach can't see live courts from here.",
   ].join("\n");
+}
+
+/** Links + optional org API probe when `PLAYTOMIC_*` credentials and `PLAYTOMIC_API_PROBE_PATH` are set. */
+export async function buildPlaytomicBookingHelpResolved(input: PlaytomicHelpInput): Promise<string> {
+  const base = buildPlaytomicHelpMessage(input);
+  if (!isPlaytomicApiConfigured()) return base;
+  const probe = await playtomicProbe();
+  if (!probe) return base;
+  return [`Playtomic API (your venue credentials):`, probe, "", "---", "", base].join("\n");
 }

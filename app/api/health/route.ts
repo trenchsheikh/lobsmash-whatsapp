@@ -12,6 +12,6 @@ export async function GET() {
     geminiConfigured: Boolean(
       process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
     ),
-    kapsoConfigured: Boolean(process.env.KAPSO_API_KEY),
+    wassistApiKeyConfigured: Boolean(process.env.WASSIST_API_KEY),
   });
 }

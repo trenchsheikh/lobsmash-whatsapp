@@ -1,112 +1,86 @@
-export type InboundKapsoMessage = {
+import crypto from "crypto";
+
+export type InboundWassistMessage = {
   messageId: string;
   waId: string;
-  phoneNumberId: string;
   text: string;
   messageType: string;
-  mediaId?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  replyCallback: string;
 };
 
 export function normalizeWaId(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
-/**
- * Kapso may send `data` as a single object (v2 doc) or as an array when batching is enabled.
- */
-function expandToEventRoots(body: Record<string, unknown>): Record<string, unknown>[] {
-  const data = body.data;
-  if (Array.isArray(data)) {
-    return data.filter(
-      (x): x is Record<string, unknown> =>
-        x !== null && typeof x === "object" && !Array.isArray(x),
-    );
-  }
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    return [data as Record<string, unknown>];
-  }
-  return [body];
+function sha256Hex(s: string): string {
+  return crypto.createHash("sha256").update(s, "utf8").digest("hex");
 }
 
-function pickSenderPhone(
-  msg: Record<string, unknown>,
-  conv: Record<string, unknown> | undefined,
-): string | undefined {
-  const convPhone = conv?.phone_number;
-  if (convPhone != null && String(convPhone).trim() !== "") {
-    return String(convPhone);
+/**
+ * Stable id for deduping: prefer platform ids, else hash reply_callback (unique per BYOA delivery),
+ * else hash of phone + message + media URLs.
+ */
+export function deriveWassistMessageId(body: Record<string, unknown>): string {
+  const mid = body.message_id ?? body.messageId ?? body.id ?? body.wa_message_id;
+  if (typeof mid === "string" && mid.trim() !== "") return mid;
+
+  const cb = body.reply_callback;
+  if (typeof cb === "string" && cb.trim() !== "") {
+    return `wassist_cb_${sha256Hex(cb)}`;
   }
-  const from = msg.from;
-  if (typeof from === "string" && from.trim() !== "") return from;
-  if (typeof from === "number" && Number.isFinite(from)) return String(from);
+
+  const phone = String(body.phone_number ?? "");
+  const msg = String(body.message ?? "");
+  const image = body.image != null ? String(body.image) : "";
+  const video = body.video != null ? String(body.video) : "";
+  return `wassist_h_${sha256Hex(`${phone}\0${msg}\0${image}\0${video}`)}`;
+}
+
+function pickHttpMediaUrl(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  if (t.startsWith("https://") || t.startsWith("http://")) return t;
   return undefined;
 }
 
 /**
- * Parse one Kapso event object (has `message`, `conversation`, optional `phone_number_id`).
+ * Wassist BYOA inbound shape:
+ * @see https://docs.wassist.app/concepts/bring-your-own-agent#step-2-implement-your-webhook
  */
-function parseSingleInbound(root: Record<string, unknown>): InboundKapsoMessage | null {
-  const msg = root.message as Record<string, unknown> | undefined;
-  if (!msg) return null;
-
-  const kapso = msg.kapso as Record<string, unknown> | undefined;
-  /** Delivery / sent / failed status webhooks for bot replies — not user input. */
-  if (kapso?.direction === "outbound") return null;
-
-  const conv = root.conversation as Record<string, unknown> | undefined;
-  const phone = pickSenderPhone(msg, conv);
-  if (!phone) return null;
-
-  const waId = normalizeWaId(phone);
-  const id = String(msg.id ?? "");
-  if (!id) return null;
-
-  const messageType = String(msg.type ?? "text");
-  let text = "";
-  if (messageType === "text") {
-    const t = msg.text as { body?: string } | undefined;
-    text = t?.body ?? "";
-  } else if (typeof kapso?.content === "string") {
-    text = kapso.content;
+export function parseWassistInbound(body: Record<string, unknown>): InboundWassistMessage | null {
+  const replyCallback = body.reply_callback;
+  if (typeof replyCallback !== "string" || replyCallback.trim() === "") {
+    return null;
   }
 
-  const phoneNumberId = String(root.phone_number_id ?? conv?.phone_number_id ?? "");
+  const phone = body.phone_number;
+  if (typeof phone !== "string" || phone.trim() === "") {
+    return null;
+  }
 
-  let mediaId: string | undefined;
-  if (messageType === "image") {
-    mediaId = (msg.image as { id?: string } | undefined)?.id;
+  const text = typeof body.message === "string" ? body.message : "";
+  const imageUrl = pickHttpMediaUrl(body.image);
+  const videoUrl = pickHttpMediaUrl(body.video);
+
+  const messageId = deriveWassistMessageId(body);
+
+  if (!text.trim() && !imageUrl && !videoUrl) {
+    return null;
   }
-  if (messageType === "video") {
-    mediaId = (msg.video as { id?: string } | undefined)?.id;
-  }
+
+  let messageType = "text";
+  if (videoUrl) messageType = "video";
+  else if (imageUrl) messageType = "image";
 
   return {
-    messageId: id,
-    waId,
-    phoneNumberId,
+    messageId,
+    waId: normalizeWaId(phone),
     text,
     messageType,
-    mediaId,
+    imageUrl,
+    videoUrl,
+    replyCallback: replyCallback.trim(),
   };
-}
-
-/**
- * All inbound user messages from a webhook body (handles batch `data: [...]`).
- */
-export function parseKapsoInboundBatch(body: Record<string, unknown>): InboundKapsoMessage[] {
-  const roots = expandToEventRoots(body);
-  const out: InboundKapsoMessage[] = [];
-  for (const root of roots) {
-    const parsed = parseSingleInbound(root);
-    if (parsed) out.push(parsed);
-  }
-  return out;
-}
-
-/**
- * First inbound message only (backward compatible).
- */
-export function parseKapsoInbound(body: Record<string, unknown>): InboundKapsoMessage | null {
-  const batch = parseKapsoInboundBatch(body);
-  return batch[0] ?? null;
 }

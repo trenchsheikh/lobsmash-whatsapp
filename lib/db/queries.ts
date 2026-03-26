@@ -133,3 +133,19 @@ export async function markMessageProcessed(messageId: string) {
     .values({ messageId, processedAt: new Date() })
     .onConflictDoNothing({ target: processedMessages.messageId });
 }
+
+/** First insert wins — use inside webhook worker to dedupe concurrent deliveries. */
+export async function tryClaimMessageForProcessing(messageId: string): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .insert(processedMessages)
+    .values({ messageId, processedAt: new Date() })
+    .onConflictDoNothing({ target: processedMessages.messageId })
+    .returning({ messageId: processedMessages.messageId });
+  return rows.length > 0;
+}
+
+export async function deleteProcessedMessage(messageId: string) {
+  const db = getDb();
+  await db.delete(processedMessages).where(eq(processedMessages.messageId, messageId));
+}

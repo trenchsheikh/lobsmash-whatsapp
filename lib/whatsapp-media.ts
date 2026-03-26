@@ -1,23 +1,23 @@
-import { getWhatsAppClient } from "./kapso-client";
+const MAX_MEDIA_BYTES = 15 * 1024 * 1024;
 
-export async function downloadInboundMedia(params: {
-  phoneNumberId: string;
-  mediaId: string;
-}): Promise<{ base64: string; mimeType: string }> {
-  const client = getWhatsAppClient();
-  const meta = await client.media.get({
-    mediaId: params.mediaId,
-    phoneNumberId: params.phoneNumberId,
-  });
-  const buf = await client.media.download({
-    mediaId: params.mediaId,
-    phoneNumberId: params.phoneNumberId,
-    as: "arrayBuffer",
-  });
-  const m = meta as { mime_type?: string; mimeType?: string };
-  const mimeType = m.mime_type ?? m.mimeType ?? "image/jpeg";
+export async function downloadMediaFromUrl(
+  url: string,
+): Promise<{ base64: string; mimeType: string }> {
+  const res = await fetch(url, { redirect: "follow" });
+  if (!res.ok) {
+    throw new Error(`media fetch failed ${res.status}`);
+  }
+  const len = res.headers.get("content-length");
+  if (len && Number(len) > MAX_MEDIA_BYTES) {
+    throw new Error("media too large");
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > MAX_MEDIA_BYTES) {
+    throw new Error("media too large");
+  }
+  const mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() || "image/jpeg";
   return {
-    base64: Buffer.from(buf as ArrayBuffer).toString("base64"),
+    base64: buf.toString("base64"),
     mimeType,
   };
 }

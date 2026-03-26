@@ -12,7 +12,7 @@ export default function Home() {
         </li>
         <li>
           <code className="bg-neutral-100 dark:bg-neutral-800 px-1 rounded">POST /api/webhooks/whatsapp</code>{" "}
-          — Kapso inbound (signed)
+          — Wassist BYOA inbound
         </li>
       </ul>
     </main>

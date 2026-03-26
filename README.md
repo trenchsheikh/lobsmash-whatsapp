@@ -5,7 +5,7 @@
 ![Next.js](https://img.shields.io/badge/Next.js-15.2-black?style=flat&logo=next.js)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react)
 ![Gemini](https://img.shields.io/badge/Gemini-3%20Flash-4285F4?style=flat&logo=google)
-![WhatsApp](https://img.shields.io/badge/WhatsApp-Kapso-25D366?style=flat&logo=whatsapp)
+![WhatsApp](https://img.shields.io/badge/WhatsApp-Wassist-25D366?style=flat&logo=whatsapp)
 ![Postgres](https://img.shields.io/badge/Postgres-Supabase-3FCF8E?style=flat&logo=postgresql)
 
 ## Why this exists
@@ -14,24 +14,24 @@ Padel is fast, technical, and social. Generic AI chat feels cold; a coach in **W
 
 ## What you get
 
-- **WhatsApp-native coach** — Inbound messages via [Kapso](https://kapso.ai) webhooks; signed delivery to Next.js (`X-Webhook-Signature`).
+- **WhatsApp-native coach** — Inbound messages via [Wassist](https://wassist.app) **Bring Your Own Agent** webhooks; your server returns a quick ack and sends the real reply through Wassist’s `reply_callback` (see [docs](https://docs.wassist.app/concepts/bring-your-own-agent)).
 - **Consistent playbook** — Every answer uses four sections: *What went wrong* → *What to fix* → *Drill* → *Goal for next time* (easy to scan on a phone).
 - **Multimodal feedback** — Send a photo or clip of your swing; the coach comments on what it sees.
 - **Solo & duo modes** — Practice alone or pair with a partner; “before the match” / “after the match” steers **duo pre** vs **duo post** debriefs.
 - **Partner pairing** — Message with “partner” + a phone number to start pairing; the other player confirms with `PAIR <CODE>` (see **`SANDBOX.md`**).
-- **Playtomic-aware** — Tools surface booking links; the bot never invents live court availability (honest logistics).
+- **Playtomic-aware** — Tools surface booking links and optional **Playtomic Third Party API** output when venue credentials are configured; the bot never invents live availability without a real API response.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  WA[WhatsApp user] --> Kapso[Kapso Cloud API]
-  Kapso -->|POST signed webhook| API["/api/webhooks/whatsapp"]
+  WA[WhatsApp user] --> Wassist[Wassist BYOA]
+  Wassist -->|POST webhook| API["/api/webhooks/whatsapp"]
+  API -->|reply_callback| Wassist
   API --> Gemini[Gemini Interactions API]
   API --> DB[(PostgreSQL / Supabase)]
-  Gemini --> Tools[Tools: memory, duo, Playtomic]
-  API --> Kapso
-  Kapso --> WA
+  Gemini --> Tools[Tools: memory, duo, Playtomic, gear]
+  Wassist --> WA
 ```
 
 | Layer | Choice |
@@ -39,7 +39,7 @@ flowchart LR
 | **App** | [Next.js 15.2](https://nextjs.org) (App Router), React 19, Turbopack dev (`npm run dev`) |
 | **Model** | `gemini-3-flash-preview` via `@google/genai` — **falls back** to `gemini-2.5-flash` if the primary model errors. Interactions API with `store: true` and multimodal input. |
 | **Data** | [PostgreSQL](https://www.postgresql.org/) through Supabase **session pooler** + [Drizzle ORM](https://orm.drizzle.team/) + [`pg`](https://node-postgres.com/). Pool size is capped lower on Vercel (`DATABASE_POOL_MAX` optional). |
-| **Messaging** | `@kapso/whatsapp-cloud-api` for outbound sends and media download. |
+| **Messaging** | Wassist delivers WhatsApp messages; this app implements the BYOA webhook + `reply_callback` POSTs (no Kapso/Meta Graph client in the hot path). |
 
 ## Quick start
 
@@ -57,7 +57,7 @@ flowchart LR
    cp .env.example .env
    ```
 
-   Set `GEMINI_API_KEY`, Kapso (`KAPSO_API_KEY`, `KAPSO_WEBHOOK_SECRET`, `WHATSAPP_PHONE_NUMBER_ID`), and **`DATABASE_URL`** (Supabase **Session pooler** URI from the dashboard — same variable on Vercel). Optional: `DATABASE_POOL_MAX` (defaults: 2 on Vercel, 10 locally).
+   Set `GEMINI_API_KEY`, **`DATABASE_URL`** (Supabase **Session pooler** URI from the dashboard — same variable on Vercel). Optional: `DATABASE_POOL_MAX` (defaults: 2 on Vercel, 10 locally). Configure **Wassist** webhook security (`WASSIST_WEBHOOK_SECRET` and/or custom header) if you use them. Optional: `WASSIST_API_KEY` for REST API use. Optional: Playtomic venue API (`PLAYTOMIC_CLIENT_ID`, `PLAYTOMIC_CLIENT_SECRET`, `PLAYTOMIC_API_PROBE_PATH`).
 
 3. Database:
 
@@ -74,9 +74,9 @@ flowchart LR
    curl http://localhost:3000/api/health
    ```
 
-5. **Webhooks need a public HTTPS URL** — Kapso cannot call `localhost`. Use **ngrok**, **Cloudflare Tunnel**, or a **Vercel preview** URL and register  
+5. **Webhooks need a public HTTPS URL** — Wassist cannot call `localhost`. Use **ngrok**, **Cloudflare Tunnel**, or a **Vercel preview** URL and register  
    `https://<your-host>/api/webhooks/whatsapp`  
-   in Kapso. Details: **`SANDBOX.md`**.
+   in the Wassist agent (Bring Your Own Agent). Details: **`SANDBOX.md`**.
 
 ## Deploy on Vercel
 
@@ -88,7 +88,8 @@ flowchart LR
 
 | Path | Role |
 |------|------|
-| `app/api/webhooks/whatsapp/route.ts` | Kapso webhook handler |
+| `app/api/webhooks/whatsapp/route.ts` | Wassist BYOA webhook + `after()` + `reply_callback` |
+| `lib/wassist/reply.ts` | Chunked POSTs to `reply_callback` |
 | `lib/coach/run-lob-smash.ts` | Gemini Interactions loop, tool calls, model fallback |
 | `lib/lobsmash-system-prompt.ts` | Modes: solo, duo pre/post |
 | `lib/partner-flow.ts` | Partner pairing |

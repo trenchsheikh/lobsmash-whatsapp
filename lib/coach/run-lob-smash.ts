@@ -77,7 +77,7 @@ function getFunctionCalls(outputs: unknown[] | undefined): FunctionCallContent[]
   return outputs.filter(isFunctionCall);
 }
 
-/** Interactions may return in_progress / incomplete; poll briefly so we stay under Kapso's ~10s webhook budget. */
+/** Interactions may return in_progress / incomplete; poll briefly until ready (Wassist uses reply_callback, not HTTP wait). */
 async function waitUntilInteractionReady(
   ai: GoogleGenAI,
   interaction: InteractionState,
