@@ -109,18 +109,27 @@ export type MediaInput =
       base64: string;
     };
 
-/**
- * WhatsApp/Wassist exposes video as a hosted HTTPS URL — we pass that in text instead of
- * embedding bytes in the model (avoids size limits and download failures).
- */
+/** When download failed, pass hosted URL in text only (no binary for Gemini). */
 function combineUserTextWithVideoUrl(userText: string, videoReferenceUrl?: string): string {
   if (!videoReferenceUrl?.trim()) return userText;
   const caption = userText.trim() || "(Video message, no caption.)";
   return [
     caption,
     "",
-    `[User attached a video. The clip is available at this URL — use it as the reference for coaching (do not claim you downloaded or watched the binary): ${videoReferenceUrl.trim()}]`,
+    `[Video URL only (file too large or fetch failed): ${videoReferenceUrl.trim()} — give general coaching; you cannot see the pixels.]`,
   ].join("\n");
+}
+
+function buildCoachUserText(params: {
+  userText: string;
+  media?: MediaInput;
+  videoReferenceUrl?: string;
+}): string {
+  if (params.media?.kind === "video") {
+    const caption = params.userText.trim() || "(Video message, no caption.)";
+    return `${caption}\n\n[Analyze this padel video: gameplay, positioning, technique, and give concrete feedback the player can use.]`;
+  }
+  return combineUserTextWithVideoUrl(params.userText, params.videoReferenceUrl);
 }
 
 export async function runLobSmashCoach(params: {
@@ -164,7 +173,7 @@ async function runCoachGenerateContentFallback(params: {
   );
   const systemInstruction = buildSystemInstruction(params.ctx.coachMode, { onboardingIntro });
   const preamble = params.ctx.memoryBlock ? `${params.ctx.memoryBlock}\n\n---\n` : "";
-  const fullUserText = combineUserTextWithVideoUrl(params.userText, params.videoReferenceUrl);
+  const fullUserText = buildCoachUserText(params);
   const fullText = `${preamble}User message:\n${fullUserText}`;
 
   const parts: Part[] = [{ text: fullText }];
@@ -175,7 +184,7 @@ async function runCoachGenerateContentFallback(params: {
         data: params.media.base64,
       },
     });
-  } else if (params.media?.kind === "video" && !params.videoReferenceUrl) {
+  } else if (params.media?.kind === "video") {
     parts.push({
       inlineData: {
         mimeType: params.media.mimeType,
@@ -229,7 +238,7 @@ async function runLobSmashCoachInner(params: {
   );
   const systemInstruction = buildSystemInstruction(params.ctx.coachMode, { onboardingIntro });
   const preamble = params.ctx.memoryBlock ? `${params.ctx.memoryBlock}\n\n---\n` : "";
-  const fullUserText = combineUserTextWithVideoUrl(params.userText, params.videoReferenceUrl);
+  const fullUserText = buildCoachUserText(params);
   const fullText = `${preamble}User message:\n${fullUserText}`;
 
   const inputParts: ContentPart[] = [{ type: "text", text: fullText }];
@@ -239,7 +248,7 @@ async function runLobSmashCoachInner(params: {
       data: params.media.base64,
       mime_type: normalizeImageMime(params.media.mimeType),
     });
-  } else if (params.media?.kind === "video" && !params.videoReferenceUrl) {
+  } else if (params.media?.kind === "video") {
     inputParts.push({
       type: "video",
       data: params.media.base64,

@@ -16,7 +16,7 @@ const voice = `Voice & style (always):
 
 const scope = `Scope — "everything padel" (use tools when relevant):
 - Coaching, drills, prep/debrief, mindset, technique — but **delivered as conversation**, not a report.
-- **Video:** When the message includes a hosted video URL, coach from that reference (we don’t embed video bytes in the model). If they only *ask* about uploading video without sending one, you may mention Pro / lobsmash.com per product rules.
+- **Video:** When a video is attached, the model can see the clip — give real gameplay feedback (movement, positioning, technique). Stay honest if only a URL was provided (download failed / too large).
 - Booking: use Playtomic tools — never invent live court availability; say slots are always confirmed in app/site/API.
 - Gear & communities: use get_padel_recommendations when relevant; stay honest that picks are general, not sponsored.`;
 

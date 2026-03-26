@@ -6,19 +6,14 @@ import { getDb } from "@/lib/db/index";
 import { handlePartnerIntent, handlePairCode, parsePairCommand } from "@/lib/partner-flow";
 import { buildMemoryBlock } from "@/lib/coach/memory-block";
 import { inferCoachMode } from "@/lib/coach/mode";
-import { runLobSmashCoach } from "@/lib/coach/run-lob-smash";
-import { downloadMediaFromUrl } from "@/lib/whatsapp-media";
+import { runLobSmashCoach, type MediaInput } from "@/lib/coach/run-lob-smash";
+import { downloadMediaFromUrl, downloadVideoFromUrl } from "@/lib/whatsapp-media";
 import { chunkText, postReplyCallbackTextChunks } from "@/lib/wassist/reply";
-import {
-  getVideoProUpgradeWassistResponse,
-  wantsVideoUploadHelp,
-  type WebhookReplyResult,
-} from "@/lib/video-pro-upgrade";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Gemini + DB can exceed default 10s on cold starts; Vercel Pro+ can raise max. */
-export const maxDuration = 60;
+/** Gemini + video analysis can exceed 60s; raise on Vercel Pro if needed. */
+export const maxDuration = 120;
 
 /** Wassist BYOA tool response: send this text to the customer. */
 function wassistMessageResponse(content: string) {
@@ -37,22 +32,17 @@ export async function GET(req: Request) {
   return NextResponse.json({ ok: true, service: "lobsmash-coach", channel: "wassist" });
 }
 
-async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookReplyResult> {
+async function buildCoachReply(inbound: InboundWassistMessage): Promise<string> {
   const { waId, text, messageType, imageUrl, videoUrl } = inbound;
 
   const code = parsePairCommand(text);
   if (code) {
-    return { kind: "text", text: await handlePairCode(waId, code) };
+    return handlePairCode(waId, code);
   }
 
   const partnerEarly = await handlePartnerIntent(waId, text);
   if (partnerEarly) {
-    return { kind: "text", text: partnerEarly.reply };
-  }
-
-  /** Pro marketing only when they *ask* about uploading — real video uses URL-in-prompt, not binary to the model. */
-  if (wantsVideoUploadHelp(text)) {
-    return { kind: "wassist_json", body: getVideoProUpgradeWassistResponse() };
+    return partnerEarly.reply;
   }
 
   await q.upsertPlayer(waId, {});
@@ -61,13 +51,22 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookR
   const coachMode = inferCoachMode(text, pair);
   const memoryBlock = await buildMemoryBlock(waId);
 
-  let media:
-    | {
-        kind: "image";
-        mimeType: string;
-        base64: string;
-      }
-    | undefined;
+  let media: MediaInput | undefined;
+  let videoReferenceUrl: string | undefined;
+
+  if (messageType === "video" && videoUrl?.trim()) {
+    try {
+      const downloaded = await downloadVideoFromUrl(videoUrl);
+      media = {
+        kind: "video",
+        base64: downloaded.base64,
+        mimeType: downloaded.mimeType,
+      };
+    } catch (e) {
+      console.error("video download failed, falling back to URL in prompt", e);
+      videoReferenceUrl = videoUrl.trim();
+    }
+  }
 
   if (imageUrl && messageType === "image") {
     try {
@@ -82,10 +81,7 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookR
     }
   }
 
-  const videoReferenceUrl =
-    messageType === "video" && videoUrl?.trim() ? videoUrl.trim() : undefined;
-
-  const textReply = await runLobSmashCoach({
+  return runLobSmashCoach({
     ctx: {
       waId,
       coachMode,
@@ -96,7 +92,6 @@ async function buildCoachReply(inbound: InboundWassistMessage): Promise<WebhookR
     media,
     videoReferenceUrl,
   });
-  return { kind: "text", text: textReply };
 }
 
 export async function POST(req: Request) {
@@ -147,21 +142,15 @@ export async function POST(req: Request) {
   const claimed = await q.tryClaimMessageForProcessing(inbound.messageId);
   if (!claimed) {
     console.warn("lobsmash: skip duplicate webhook delivery", inbound.messageId);
-    /** Duplicate delivery — nothing new to say (avoid echoing a second reply). */
     return NextResponse.json({ ok: true, duplicate: true });
   }
 
   try {
-    const result = await buildCoachReply(inbound);
-    if (result.kind === "wassist_json") {
-      return NextResponse.json(result.body);
-    }
-    const reply = result.text;
+    const reply = await buildCoachReply(inbound);
     const parts = chunkText(reply);
     if (parts.length === 1) {
       return wassistMessageResponse(parts[0]!);
     }
-    /** First segment in sync response; remainder via reply_callback (24h URL). */
     const [first, ...rest] = parts;
     const tail = rest.join("");
     if (tail) {
